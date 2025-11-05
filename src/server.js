@@ -20,11 +20,22 @@ app.use(compression());
 // CORS configuration for production
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
-    ? [
-        'https://betapi-ev.vercel.app',
-        'https://betapi-ev-*.vercel.app', // Preview deployments
-        process.env.FRONTEND_URL
-      ].filter(Boolean)
+    ? (origin, callback) => {
+        const allowedOrigins = [
+          'https://betapi-ev.vercel.app',
+          'https://betapi-frontend.vercel.app',
+          process.env.FRONTEND_URL
+        ].filter(Boolean);
+
+        // Also allow any vercel.app subdomain
+        const isVercelApp = origin && origin.match(/^https:\/\/.*\.vercel\.app$/);
+
+        if (!origin || allowedOrigins.includes(origin) || isVercelApp) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      }
     : '*',
   credentials: true,
   optionsSuccessStatus: 200
