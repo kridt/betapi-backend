@@ -1,0 +1,561 @@
+import axios from 'axios';
+import NodeCache from 'node-cache';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const cache = new NodeCache({
+  stdTTL: 300, // Default 5 minutes
+  checkperiod: 60
+});
+
+class BetsAPIService {
+  constructor() {
+    this.baseURL = process.env.BETSAPI_BASE_URL || 'https://api.betsapi.com';
+    this.apiKey = process.env.BETSAPI_KEY;
+    this.client = axios.create({
+      baseURL: this.baseURL,
+      timeout: 10000
+    });
+  }
+
+  /**
+   * Make a request to BetsAPI with caching
+   */
+  async makeRequest(endpoint, params = {}, cacheTTL = 300) {
+    const cacheKey = `${endpoint}_${JSON.stringify(params)}`;
+
+    console.log('\n════════════════════════════════════════');
+    console.log(`🔍 Making request to: ${endpoint}`);
+    console.log(`📦 Parameters:`, JSON.stringify(params, null, 2));
+    console.log(`🔑 API Key present:`, !!this.apiKey);
+    console.log(`🔑 API Key (first 10 chars):`, this.apiKey?.substring(0, 10));
+
+    // Check cache first
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log(`✅ Cache hit: ${endpoint}`);
+      console.log(`📊 Cached data keys:`, Object.keys(cached));
+      console.log('════════════════════════════════════════\n');
+      return cached;
+    }
+
+    try {
+      const fullParams = {
+        token: this.apiKey,
+        ...params
+      };
+
+      console.log(`🌐 Full URL: ${this.baseURL}${endpoint}`);
+      console.log(`🌐 Full params:`, JSON.stringify(fullParams, null, 2));
+
+      const response = await this.client.get(endpoint, {
+        params: fullParams
+      });
+
+      console.log(`📡 Response status: ${response.status}`);
+      console.log(`📡 Response data keys:`, Object.keys(response.data || {}));
+      console.log(`📡 Response data:`, JSON.stringify(response.data, null, 2));
+
+      if (response.data && response.data.success !== false) {
+        cache.set(cacheKey, response.data, cacheTTL);
+        console.log(`✅ API call successful: ${endpoint}`);
+        console.log('════════════════════════════════════════\n');
+        return response.data;
+      } else {
+        console.log(`❌ API returned success=false`);
+        console.log(`❌ Error message:`, response.data?.error);
+        console.log('════════════════════════════════════════\n');
+        throw new Error(response.data?.error || 'API request failed');
+      }
+    } catch (error) {
+      console.error(`❌ BetsAPI Error (${endpoint}):`, error.message);
+      console.error(`❌ Error stack:`, error.stack);
+      if (error.response) {
+        console.error(`❌ Response status:`, error.response.status);
+        console.error(`❌ Response data:`, JSON.stringify(error.response.data, null, 2));
+      }
+      console.log('════════════════════════════════════════\n');
+      throw error;
+    }
+  }
+
+  /**
+   * Get top leagues for football/soccer (sport_id = 1)
+   */
+  async getTopLeagues() {
+    console.log('\n🏆 ========== GET TOP LEAGUES ==========');
+
+    const response = await this.makeRequest('/v1/league', {
+      sport_id: 1 // Football
+    }, 3600); // Cache for 1 hour
+
+    console.log(`📊 Response has results:`, !!response.results);
+    console.log(`📊 Total results count:`, response.results?.length || 0);
+
+    if (!response.results) {
+      console.log('⚠️ No results in response, returning empty array');
+      console.log('🏆 ====================================\n');
+      return [];
+    }
+
+    // TOP 20 LEAGUE IDs (verified from league.json)
+    const top20LeagueIDs = [
+      '38223', // Spain La Liga ⭐⭐⭐
+      '1067',  // UEFA Europa League ⭐⭐⭐
+      '1040',  // UEFA Champions League ⭐⭐⭐
+      '199',   // Italy Serie A ⭐⭐⭐
+      '123',   // Germany Bundesliga I ⭐⭐⭐
+      '99',    // France Ligue 1 ⭐⭐⭐
+      '94',    // England Premier League ⭐⭐⭐
+      '39111', // Türkiye Super Lig ⭐⭐
+      '34541', // UEFA Conference League ⭐⭐
+      '24792', // Holland Eredivisie ⭐⭐
+      '901',   // Scotland Premiership ⭐⭐
+      '880',   // England Championship ⭐⭐
+      '172',   // Portugal Primeira Liga ⭐⭐
+      '26549', // Argentina Liga Profesional ⭐
+      '3514',  // Copa Libertadores ⭐
+      '166',   // Austria Bundesliga ⭐
+      '155',   // Brazil Serie A ⭐
+      '153',   // Russia Premier League ⭐
+      '126',   // Norway Eliteserien ⭐
+      '125'    // Poland Ekstraklasa ⭐
+    ];
+
+    console.log(`🔍 Filtering for ${top20LeagueIDs.length} top leagues...`);
+
+    // Filter leagues by ID
+    const filtered = response.results.filter(league =>
+      top20LeagueIDs.includes(league.id)
+    );
+
+    console.log(`✅ Found ${filtered.length} out of ${top20LeagueIDs.length} leagues`);
+
+    // Sort by the order in top20LeagueIDs array
+    filtered.sort((a, b) => {
+      return top20LeagueIDs.indexOf(a.id) - top20LeagueIDs.indexOf(b.id);
+    });
+
+    console.log(`\n📋 TOP 20 LEAGUES:`);
+    console.log(`════════════════════════════════════════════════════════════`);
+    filtered.forEach((league, i) => {
+      const tier = i < 7 ? '⭐⭐⭐' : i < 13 ? '⭐⭐' : '⭐';
+      console.log(`${(i + 1).toString().padStart(2)}. ${league.name.padEnd(35)} ${tier} [${league.cc || 'INT'}] ID: ${league.id}`);
+    });
+    console.log(`════════════════════════════════════════════════════════════\n`);
+
+    const final = filtered.map(league => ({
+      league_id: league.id,
+      name: league.name,
+      country: league.cc || 'International',
+      logo: `https://assets.betsapi.com/v2/images/flags/${league.cc?.toLowerCase()}.svg`,
+      season_id: null
+    }));
+
+    console.log(`📤 Returning ${final.length} leagues`);
+    console.log('🏆 ====================================\n');
+
+    return final;
+  }
+
+  /**
+   * Get upcoming matches for a league
+   */
+  async getUpcomingMatches(leagueId, limit = 10) {
+      { keywords: ['la liga', 'laliga'], priority: 1, region: 'Spain' },
+      { keywords: ['bundesliga', '1. bundesliga'], priority: 1, region: 'Germany' },
+      { keywords: ['serie a'], priority: 1, region: 'Italy' },
+      { keywords: ['ligue 1'], priority: 1, region: 'France' },
+      { keywords: ['champions league', 'ucl', 'uefa champions'], priority: 1, region: 'Europe' },
+      { keywords: ['europa league', 'uel', 'uefa europa'], priority: 1, region: 'Europe' },
+
+      // ═══════════════════════════════════════════════════════════
+      // PRIORITY 2: Major European Leagues + Top International
+      // ═══════════════════════════════════════════════════════════
+      { keywords: ['eredivisie'], priority: 2, region: 'Netherlands' },
+      { keywords: ['primeira liga', 'liga portugal'], priority: 2, region: 'Portugal' },
+      { keywords: ['scottish premiership', 'spfl'], priority: 2, region: 'Scotland' },
+      { keywords: ['pro league', 'jupiler'], priority: 2, region: 'Belgium' },
+      { keywords: ['super lig', 'süper lig'], priority: 2, region: 'Turkey' },
+      { keywords: ['championship', 'efl championship'], priority: 2, region: 'England' },
+      { keywords: ['conference league', 'uefa conference'], priority: 2, region: 'Europe' },
+      { keywords: ['world cup', 'fifa world cup'], priority: 2, region: 'International' },
+      { keywords: ['euro', 'european championship', 'uefa euro'], priority: 2, region: 'Europe' },
+      { keywords: ['nations league', 'uefa nations'], priority: 2, region: 'Europe' },
+
+      // ═══════════════════════════════════════════════════════════
+      // PRIORITY 3: Competitive European + Top South America
+      // ═══════════════════════════════════════════════════════════
+      { keywords: ['greek super league', 'super league greece'], priority: 3, region: 'Greece' },
+      { keywords: ['russian premier', 'premier liga'], priority: 3, region: 'Russia' },
+      { keywords: ['danish superliga', 'superligaen'], priority: 3, region: 'Denmark' },
+      { keywords: ['allsvenskan', 'swedish'], priority: 3, region: 'Sweden' },
+      { keywords: ['eliteserien', 'norwegian'], priority: 3, region: 'Norway' },
+      { keywords: ['austrian bundesliga', 'austria'], priority: 3, region: 'Austria' },
+      { keywords: ['swiss super league', 'switzerland'], priority: 3, region: 'Switzerland' },
+      { keywords: ['ekstraklasa', 'polish'], priority: 3, region: 'Poland' },
+      { keywords: ['czech', 'fortuna liga'], priority: 3, region: 'Czech' },
+      { keywords: ['croatian', 'hnl'], priority: 3, region: 'Croatia' },
+      { keywords: ['serbian', 'super liga'], priority: 3, region: 'Serbia' },
+      { keywords: ['ukrainian', 'premier liga'], priority: 3, region: 'Ukraine' },
+      { keywords: ['romanian', 'liga 1'], priority: 3, region: 'Romania' },
+      { keywords: ['israeli premier', 'ligat ha\'al'], priority: 3, region: 'Israel' },
+      { keywords: ['brasileiro', 'serie a', 'brasileirao'], priority: 3, region: 'Brazil' },
+      { keywords: ['primera division', 'liga profesional', 'argentina'], priority: 3, region: 'Argentina' },
+      { keywords: ['copa libertadores', 'libertadores'], priority: 3, region: 'South America' },
+
+      // ═══════════════════════════════════════════════════════════
+      // PRIORITY 4: Second Divisions + Other Americas
+      // ═══════════════════════════════════════════════════════════
+      { keywords: ['segunda division', 'laliga2', 'spain'], priority: 4, region: 'Spain' },
+      { keywords: ['2. bundesliga', 'germany'], priority: 4, region: 'Germany' },
+      { keywords: ['serie b', 'italy'], priority: 4, region: 'Italy' },
+      { keywords: ['ligue 2', 'france'], priority: 4, region: 'France' },
+      { keywords: ['league one', 'efl league one'], priority: 4, region: 'England' },
+      { keywords: ['mls', 'major league soccer'], priority: 4, region: 'USA/Canada' },
+      { keywords: ['liga mx', 'mexico'], priority: 4, region: 'Mexico' },
+      { keywords: ['copa america'], priority: 4, region: 'South America' },
+      { keywords: ['copa sudamericana'], priority: 4, region: 'South America' },
+      { keywords: ['concacaf', 'gold cup'], priority: 4, region: 'North America' },
+
+      // ═══════════════════════════════════════════════════════════
+      // PRIORITY 5: Middle East, Asia, Africa, Oceania
+      // ═══════════════════════════════════════════════════════════
+      { keywords: ['saudi pro league', 'saudi professional', 'roshn'], priority: 5, region: 'Saudi Arabia' },
+      { keywords: ['qatar stars', 'qsl'], priority: 5, region: 'Qatar' },
+      { keywords: ['uae', 'arabian gulf'], priority: 5, region: 'UAE' },
+      { keywords: ['chinese super league', 'csl'], priority: 5, region: 'China' },
+      { keywords: ['j1 league', 'j-league', 'japan'], priority: 5, region: 'Japan' },
+      { keywords: ['k league', 'korea'], priority: 5, region: 'South Korea' },
+      { keywords: ['indian super league', 'isl'], priority: 5, region: 'India' },
+      { keywords: ['a-league', 'australian'], priority: 5, region: 'Australia' },
+      { keywords: ['afc champions', 'asian champions'], priority: 5, region: 'Asia' },
+      { keywords: ['afcon', 'africa cup'], priority: 5, region: 'Africa' },
+      { keywords: ['caf champions', 'african champions'], priority: 5, region: 'Africa' },
+      { keywords: ['south african premiership', 'psl'], priority: 5, region: 'South Africa' }
+    ];
+
+    console.log(`🔍 Filtering for world football leagues...`);
+    console.log(`🌍 Looking for ${worldLeagues.length} different league types`);
+
+    // Match leagues with priorities
+    const matchedLeagues = response.results
+      .map(league => {
+        const leagueName = (league.name || '').toLowerCase();
+        const countryCode = (league.cc || '').toLowerCase();
+
+        // Find matching keyword set
+        for (const worldLeague of worldLeagues) {
+          const matches = worldLeague.keywords.some(keyword =>
+            leagueName.includes(keyword.toLowerCase()) ||
+            countryCode.includes(keyword.toLowerCase())
+          );
+
+          if (matches) {
+            return {
+              ...league,
+              priority: worldLeague.priority,
+              region: worldLeague.region,
+              matched: true
+            };
+          }
+        }
+
+        return null;
+      })
+      .filter(league => league !== null);
+
+    console.log(`✅ Found ${matchedLeagues.length} matching world leagues`);
+
+    // Sort by priority (1 = highest, 5 = lowest)
+    let filtered = matchedLeagues.sort((a, b) => a.priority - b.priority);
+
+    // If we don't find many leagues, add leagues with league tables
+    if (filtered.length < 50) {
+      console.log(`⚠️ Found ${filtered.length} leagues. Adding leagues with tables...`);
+
+      const withTables = response.results
+        .filter(league =>
+          (league.has_leaguetable === 1 || league.has_leaguetable === '1') &&
+          !filtered.find(f => f.id === league.id)
+        )
+        .map(league => ({ ...league, priority: 6, region: 'Other', matched: false }));
+
+      console.log(`📊 Found ${withTables.length} additional leagues with league tables`);
+
+      filtered = [...filtered, ...withTables];
+      console.log(`📊 Total after combining: ${filtered.length} leagues`);
+    }
+
+    if (filtered.length > 0) {
+      console.log(`\n📋 ALL MATCHED LEAGUES (showing all ${filtered.length}):`);
+      console.log(`════════════════════════════════════════════════════════════`);
+
+      // Group by priority
+      const byPriority = {
+        1: filtered.filter(l => l.priority === 1),
+        2: filtered.filter(l => l.priority === 2),
+        3: filtered.filter(l => l.priority === 3),
+        4: filtered.filter(l => l.priority === 4),
+        5: filtered.filter(l => l.priority === 5),
+        6: filtered.filter(l => l.priority === 6),
+      };
+
+      Object.entries(byPriority).forEach(([priority, leagues]) => {
+        if (leagues.length > 0) {
+          const label = priority === '1' ? '⭐⭐⭐ ELITE' :
+                       priority === '2' ? '⭐⭐ MAJOR' :
+                       priority === '3' ? '⭐ COMPETITIVE' :
+                       priority === '4' ? '○ SECONDARY' :
+                       priority === '5' ? '○ REGIONAL' : '○ OTHER';
+          console.log(`\n${label} (${leagues.length} leagues):`);
+          leagues.forEach((l, i) => {
+            console.log(`   ${i + 1}. ${l.name} (ID: ${l.id}) [${l.region || l.cc || 'INT'}]`);
+          });
+        }
+      });
+
+      console.log(`\n════════════════════════════════════════════════════════════`);
+    } else {
+      console.log(`⚠️ No leagues found! Using all leagues from API response`);
+      filtered = response.results.map(l => ({ ...l, priority: 7, region: 'Unknown', matched: false }));
+    }
+
+    const final = filtered
+      .map(league => ({
+        league_id: league.id,
+        name: league.name,
+        country: league.cc || league.region || 'International',
+        logo: `https://assets.betsapi.com/v2/images/flags/${league.cc?.toLowerCase()}.svg`,
+        season_id: null,
+        region: league.region || 'Unknown'
+      }));
+
+    console.log(`📤 Returning ${final.length} leagues total`);
+    console.log('🏆 ====================================\n');
+
+    return final;
+  }
+
+  /**
+   * Get upcoming matches for a league
+   */
+  async getUpcomingMatches(leagueId, limit = 10) {
+    console.log('\n⚽ ========== GET UPCOMING MATCHES ==========');
+    console.log(`🔍 League ID: ${leagueId}`);
+    console.log(`🔍 Limit: ${limit}`);
+
+    const day = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    console.log(`📅 Day parameter: ${day}`);
+
+    const response = await this.makeRequest('/v3/events/upcoming', {
+      sport_id: 1,
+      league_id: leagueId,
+      day: day
+    }, 300); // Cache for 5 minutes
+
+    console.log(`📊 Response has results:`, !!response.results);
+    console.log(`📊 Total results count:`, response.results?.length || 0);
+
+    if (!response.results) {
+      console.log('⚠️ No results in response, returning empty array');
+      console.log('⚽ ==========================================\n');
+      return [];
+    }
+
+    // Log first match to see structure
+    console.log(`📋 Sample match (first one):`, JSON.stringify(response.results[0], null, 2));
+
+    const matches = response.results
+      .slice(0, limit)
+      .map(match => ({
+        match_id: match.id,
+        home_team: match.home?.name || 'Home Team',
+        away_team: match.away?.name || 'Away Team',
+        start_time: match.time,
+        status: match.timer?.tm ? 'live' : 'scheduled',
+        home_logo: match.home?.image_id
+          ? `https://assets.betsapi.com/v2/images/teams/${match.home.image_id}.png`
+          : null,
+        away_logo: match.away?.image_id
+          ? `https://assets.betsapi.com/v2/images/teams/${match.away.image_id}.png`
+          : null,
+        league_name: match.league?.name || ''
+      }));
+
+    console.log(`📤 Returning ${matches.length} matches`);
+    console.log(`📤 Matches:`, JSON.stringify(matches, null, 2));
+    console.log('⚽ ==========================================\n');
+
+    return matches;
+  }
+
+  /**
+   * Get match summary
+   */
+  async getMatchSummary(matchId) {
+    const response = await this.makeRequest('/v1/event/view', {
+      event_id: matchId
+    }, 180);
+
+    if (!response.results || response.results.length === 0) {
+      throw new Error('Match not found');
+    }
+
+    const match = response.results[0];
+    return {
+      match_id: match.id,
+      home_team: match.home?.name || 'Home Team',
+      away_team: match.away?.name || 'Away Team',
+      start_time: match.time,
+      status: match.timer?.tm ? 'live' : (match.time_status === '3' ? 'finished' : 'scheduled'),
+      score: match.ss || '0-0',
+      home_logo: match.home?.image_id
+        ? `https://assets.betsapi.com/v2/images/teams/${match.home.image_id}.png`
+        : null,
+      away_logo: match.away?.image_id
+        ? `https://assets.betsapi.com/v2/images/teams/${match.away.image_id}.png`
+        : null,
+      league: {
+        league_id: match.league?.id,
+        name: match.league?.name
+      }
+    };
+  }
+
+  /**
+   * Get match details with lineups and stats
+   */
+  async getMatchDetails(matchId) {
+    const response = await this.makeRequest('/v2/event/view', {
+      event_id: matchId
+    }, 300);
+
+    if (!response.results || response.results.length === 0) {
+      return {
+        lineups: null,
+        stats: null,
+        form: { home: [], away: [] }
+      };
+    }
+
+    const match = response.results[0];
+
+    return {
+      lineups: match.lineups || null,
+      stats: match.stats || null,
+      form: {
+        home: match.home?.last_form || [],
+        away: match.away?.last_form || []
+      }
+    };
+  }
+
+  /**
+   * Get odds for a match
+   */
+  async getMatchOdds(matchId) {
+    const response = await this.makeRequest('/v1/event/odds', {
+      event_id: matchId
+    }, 60); // Cache for 1 minute (live odds)
+
+    if (!response.results || !response.results.odds) {
+      return { markets: [] };
+    }
+
+    const odds = response.results.odds;
+    const markets = [];
+
+    // Process different market types
+    Object.keys(odds).forEach(bookmakerKey => {
+      const bookmaker = odds[bookmakerKey];
+
+      // 1X2 Market (Full Time Result)
+      if (bookmaker['1_1']) {
+        markets.push({
+          market: '1X2',
+          bookmaker: bookmakerKey,
+          odds: {
+            home: parseFloat(bookmaker['1_1'][0]?.home_od || 0),
+            draw: parseFloat(bookmaker['1_1'][0]?.draw_od || 0),
+            away: parseFloat(bookmaker['1_1'][0]?.away_od || 0)
+          },
+          timestamp: bookmaker['1_1'][0]?.add_time
+        });
+      }
+
+      // Over/Under 2.5 Goals
+      if (bookmaker['1_3']) {
+        const ou = bookmaker['1_3'].find(o => o.handicap === '2.5');
+        if (ou) {
+          markets.push({
+            market: 'O/U 2.5',
+            bookmaker: bookmakerKey,
+            odds: {
+              over: parseFloat(ou.over_od || 0),
+              under: parseFloat(ou.under_od || 0)
+            },
+            timestamp: ou.add_time
+          });
+        }
+      }
+
+      // Both Teams to Score
+      if (bookmaker['1_8']) {
+        markets.push({
+          market: 'BTTS',
+          bookmaker: bookmakerKey,
+          odds: {
+            yes: parseFloat(bookmaker['1_8'][0]?.home_od || 0),
+            no: parseFloat(bookmaker['1_8'][0]?.away_od || 0)
+          },
+          timestamp: bookmaker['1_8'][0]?.add_time
+        });
+      }
+    });
+
+    return { markets };
+  }
+
+  /**
+   * Get head-to-head data
+   */
+  async getH2H(matchId) {
+    try {
+      const response = await this.makeRequest('/v1/event/view', {
+        event_id: matchId
+      }, 600);
+
+      // H2H data might be in a different endpoint or require parsing
+      // For now, return placeholder structure
+      return {
+        matches: [],
+        stats: {
+          home_wins: 0,
+          draws: 0,
+          away_wins: 0
+        }
+      };
+    } catch (error) {
+      console.error('H2H fetch error:', error.message);
+      return {
+        matches: [],
+        stats: { home_wins: 0, draws: 0, away_wins: 0 }
+      };
+    }
+  }
+
+  /**
+   * Clear cache for specific key or all
+   */
+  clearCache(key = null) {
+    if (key) {
+      cache.del(key);
+    } else {
+      cache.flushAll();
+    }
+  }
+}
+
+export default new BetsAPIService();

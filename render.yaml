@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: betapi-ev-backend
+    runtime: node
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: BETSAPI_KEY
+        sync: false
+      - key: BETSAPI_BASE_URL
+        value: https://api.betsapi.com
+      - key: CACHE_LEAGUES_TTL
+        value: 3600
+      - key: CACHE_MATCHES_TTL
+        value: 300
+      - key: CACHE_ODDS_TTL
+        value: 60
+      - key: CACHE_DETAILS_TTL
+        value: 300
+      - key: MIN_EV_THRESHOLD
+        value: 4.0
