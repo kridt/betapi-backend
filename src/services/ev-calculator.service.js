@@ -1,14 +1,14 @@
 /**
- * EV Calculator Service - FIXED VERSION
- * Calculates Expected Value for betting odds across multiple bookmakers
+ * EV Calculator Service - STATISTICAL MODEL VERSION
+ * Calculates Expected Value using statistical probabilities from historical data
  *
- * CORRECT METHOD:
- * 1. Get odds from ALL bookmakers for each market
- * 2. Calculate fair probabilities by averaging all bookmaker odds and removing margin
- * 3. Compare EACH bookmaker's odds against the fair odds
- * 4. Only bookmakers offering better odds than fair value show positive EV
+ * NEW METHOD:
+ * 1. Calculate TRUE probabilities from H2H and team form statistics (NOT bookmaker odds)
+ * 2. Use Poisson distribution based on expected goals
+ * 3. Compare bookmaker odds against statistically-derived probabilities
+ * 4. Show opportunities where bookmakers offer better odds than statistical model
  *
- * EV% = ((Bookmaker Odds × True Probability) - 1) × 100
+ * EV% = ((Bookmaker Odds × Statistical Probability) - 1) × 100
  */
 
 class EVCalculatorService {
@@ -168,44 +168,35 @@ class EVCalculatorService {
   }
 
   /**
-   * Calculate EV for 1X2 Market
+   * Calculate EV for 1X2 Market using STATISTICAL probabilities
    */
-  calculate1X2EV(bookmakers) {
+  calculate1X2EV(bookmakers, statisticalProbs) {
     const marketType = '1X2';
     const outcomes = ['home', 'draw', 'away'];
 
     // Get bookmakers that have this market
     const relevantBookmakers = bookmakers.filter(b => b.markets[marketType]);
 
-    if (relevantBookmakers.length === 0) {
+    if (relevantBookmakers.length === 0 || !statisticalProbs) {
       return null;
     }
 
-    console.log(`\n🔢 Calculating 1X2 EV from ${relevantBookmakers.length} bookmakers...`);
+    console.log(`\n🔢 Calculating 1X2 EV using statistical probabilities from ${relevantBookmakers.length} bookmakers...`);
 
-    // Step 1: Calculate average odds across all bookmakers
-    const { avgOdds, oddsRange, bookmakerCount } = this.calculateMarketAverage(bookmakers, marketType, outcomes);
+    // Use statistical probabilities (from H2H and form analysis)
+    const fairProbs = statisticalProbs.probabilities;
+    const fairOdds = statisticalProbs.fair_odds;
 
-    console.log(`📊 Average odds:`, avgOdds);
+    console.log(`✨ Statistical probabilities:`, fairProbs);
+    console.log(`✨ Fair odds from stats:`, fairOdds);
 
-    // Step 2: Calculate implied probabilities from averages
-    const impliedProbs = {
-      home: this.calculateImpliedProbability(avgOdds.home),
-      draw: this.calculateImpliedProbability(avgOdds.draw),
-      away: this.calculateImpliedProbability(avgOdds.away)
-    };
-
-    // Step 3: Remove margin to get fair probabilities
-    const fairProbs = this.calculateFairProbabilities(impliedProbs);
-    const fairOdds = this.calculateFairOdds(fairProbs);
-
-    console.log(`✨ Fair probabilities:`, fairProbs);
-    console.log(`✨ Fair odds:`, fairOdds);
+    // Calculate odds range for explanation
+    const { oddsRange } = this.calculateMarketAverage(bookmakers, marketType, outcomes);
 
     // Generate explanation
-    const explanation = this.generateExplanation(marketType, outcomes, avgOdds, oddsRange, bookmakerCount, fairProbs);
+    const explanation = statisticalProbs.explanation || 'Based on statistical analysis of team form and H2H history.';
 
-    // Step 4: Calculate EV for each bookmaker
+    // Calculate EV for each bookmaker against statistical probabilities
     const opportunities = [];
 
     relevantBookmakers.forEach(bookmaker => {
@@ -241,40 +232,35 @@ class EVCalculatorService {
       fair_odds: fairOdds,
       odds_range: oddsRange,
       explanation,
-      opportunities
+      opportunities,
+      data_quality: statisticalProbs.data_quality
     };
   }
 
   /**
-   * Calculate EV for Over/Under 2.5 Market
+   * Calculate EV for Over/Under 2.5 Market using STATISTICAL probabilities
    */
-  calculateOUEV(bookmakers) {
+  calculateOUEV(bookmakers, statisticalProbs) {
     const marketType = 'O/U 2.5';
     const outcomes = ['over', 'under'];
 
     const relevantBookmakers = bookmakers.filter(b => b.markets[marketType]);
 
-    if (relevantBookmakers.length === 0) {
+    if (relevantBookmakers.length === 0 || !statisticalProbs) {
       return null;
     }
 
-    console.log(`\n🔢 Calculating O/U 2.5 EV from ${relevantBookmakers.length} bookmakers...`);
+    console.log(`\n🔢 Calculating O/U 2.5 EV using statistical probabilities from ${relevantBookmakers.length} bookmakers...`);
 
-    const { avgOdds, oddsRange, bookmakerCount } = this.calculateMarketAverage(bookmakers, marketType, outcomes);
+    // Use statistical probabilities
+    const fairProbs = statisticalProbs.probabilities;
+    const fairOdds = statisticalProbs.fair_odds;
 
-    console.log(`📊 Average odds:`, avgOdds);
+    console.log(`✨ Statistical probabilities:`, fairProbs);
 
-    const impliedProbs = {
-      over: this.calculateImpliedProbability(avgOdds.over),
-      under: this.calculateImpliedProbability(avgOdds.under)
-    };
+    const { oddsRange } = this.calculateMarketAverage(bookmakers, marketType, outcomes);
 
-    const fairProbs = this.calculateFairProbabilities(impliedProbs);
-    const fairOdds = this.calculateFairOdds(fairProbs);
-
-    console.log(`✨ Fair probabilities:`, fairProbs);
-
-    const explanation = this.generateExplanation(marketType, outcomes, avgOdds, oddsRange, bookmakerCount, fairProbs);
+    const explanation = statisticalProbs.explanation || 'Based on expected goals from statistical analysis.';
 
     const opportunities = [];
 
@@ -309,40 +295,35 @@ class EVCalculatorService {
       fair_odds: fairOdds,
       odds_range: oddsRange,
       explanation,
-      opportunities
+      opportunities,
+      expected_total_goals: statisticalProbs.expected_total_goals
     };
   }
 
   /**
-   * Calculate EV for BTTS Market
+   * Calculate EV for BTTS Market using STATISTICAL probabilities
    */
-  calculateBTTSEV(bookmakers) {
+  calculateBTTSEV(bookmakers, statisticalProbs) {
     const marketType = 'BTTS';
     const outcomes = ['yes', 'no'];
 
     const relevantBookmakers = bookmakers.filter(b => b.markets[marketType]);
 
-    if (relevantBookmakers.length === 0) {
+    if (relevantBookmakers.length === 0 || !statisticalProbs) {
       return null;
     }
 
-    console.log(`\n🔢 Calculating BTTS EV from ${relevantBookmakers.length} bookmakers...`);
+    console.log(`\n🔢 Calculating BTTS EV using statistical probabilities from ${relevantBookmakers.length} bookmakers...`);
 
-    const { avgOdds, oddsRange, bookmakerCount } = this.calculateMarketAverage(bookmakers, marketType, outcomes);
+    // Use statistical probabilities
+    const fairProbs = statisticalProbs.probabilities;
+    const fairOdds = statisticalProbs.fair_odds;
 
-    console.log(`📊 Average odds:`, avgOdds);
+    console.log(`✨ Statistical probabilities:`, fairProbs);
 
-    const impliedProbs = {
-      yes: this.calculateImpliedProbability(avgOdds.yes),
-      no: this.calculateImpliedProbability(avgOdds.no)
-    };
+    const { oddsRange } = this.calculateMarketAverage(bookmakers, marketType, outcomes);
 
-    const fairProbs = this.calculateFairProbabilities(impliedProbs);
-    const fairOdds = this.calculateFairOdds(fairProbs);
-
-    console.log(`✨ Fair probabilities:`, fairProbs);
-
-    const explanation = this.generateExplanation(marketType, outcomes, avgOdds, oddsRange, bookmakerCount, fairProbs);
+    const explanation = statisticalProbs.explanation || 'Based on team scoring rates from statistical analysis.';
 
     const opportunities = [];
 
@@ -377,28 +358,42 @@ class EVCalculatorService {
       fair_odds: fairOdds,
       odds_range: oddsRange,
       explanation,
-      opportunities
+      opportunities,
+      team_scoring: statisticalProbs.team_scoring
     };
   }
 
   /**
-   * Process all markets and calculate EV for a match
+   * Process all markets and calculate EV for a match using STATISTICAL probabilities
    */
-  calculateMatchEV(oddsData) {
+  calculateMatchEV(oddsData, statisticalProbabilities) {
     if (!oddsData || !oddsData.bookmakers || oddsData.bookmakers.length === 0) {
       return {
         '1X2': null,
         'O/U 2.5': null,
         'BTTS': null,
-        all_opportunities: []
+        all_opportunities: [],
+        model: 'statistical'
       };
     }
 
-    console.log(`\n💰 ===== EV CALCULATION FOR ${oddsData.bookmakers.length} BOOKMAKERS =====`);
+    console.log(`\n💰 ===== STATISTICAL EV CALCULATION FOR ${oddsData.bookmakers.length} BOOKMAKERS =====`);
 
-    const ev1X2 = this.calculate1X2EV(oddsData.bookmakers);
-    const evOU = this.calculateOUEV(oddsData.bookmakers);
-    const evBTTS = this.calculateBTTSEV(oddsData.bookmakers);
+    if (!statisticalProbabilities) {
+      console.log('⚠️ No statistical probabilities available - cannot calculate EV');
+      return {
+        '1X2': null,
+        'O/U 2.5': null,
+        'BTTS': null,
+        all_opportunities: [],
+        model: 'statistical',
+        error: 'Statistical probabilities not available'
+      };
+    }
+
+    const ev1X2 = this.calculate1X2EV(oddsData.bookmakers, statisticalProbabilities['1X2']);
+    const evOU = this.calculateOUEV(oddsData.bookmakers, statisticalProbabilities['O/U 2.5']);
+    const evBTTS = this.calculateBTTSEV(oddsData.bookmakers, statisticalProbabilities['BTTS']);
 
     const allOpportunities = [
       ...(ev1X2?.opportunities || []),
@@ -416,7 +411,10 @@ class EVCalculatorService {
       '1X2': ev1X2,
       'O/U 2.5': evOU,
       'BTTS': evBTTS,
-      all_opportunities: allOpportunities
+      all_opportunities: allOpportunities,
+      model: 'statistical',
+      metadata: statisticalProbabilities.metadata,
+      stats_predictions: statisticalProbabilities.stats_predictions
     };
   }
 }

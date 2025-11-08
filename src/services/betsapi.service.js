@@ -202,6 +202,14 @@ class BetsAPIService {
       match_id: match.id,
       home_team: match.home?.name || 'Home Team',
       away_team: match.away?.name || 'Away Team',
+      home: {
+        id: match.home?.id,
+        name: match.home?.name || 'Home Team'
+      },
+      away: {
+        id: match.away?.id,
+        name: match.away?.name || 'Away Team'
+      },
       start_time: match.time,
       status: match.timer?.tm ? 'live' : (match.time_status === '3' ? 'finished' : 'scheduled'),
       score: match.ss || '0-0',
@@ -441,16 +449,46 @@ class BetsAPIService {
   }
 
   /**
-   * Get head-to-head data
+   * Get head-to-head and team form data for statistical analysis
+   */
+  async getEventHistory(matchId) {
+    console.log('\n📜 ========== GET EVENT HISTORY (H2H + FORM) ==========');
+    console.log(`🔍 Match ID: ${matchId}`);
+
+    try {
+      const response = await this.makeRequest('/v1/event/history', {
+        event_id: matchId
+      }, 600); // Cache for 10 minutes
+
+      console.log(`📊 History data retrieved successfully`);
+      if (response.results) {
+        console.log(`   H2H matches: ${response.results.h2h?.length || 0}`);
+        console.log(`   Home team matches: ${response.results.home?.length || 0}`);
+        console.log(`   Away team matches: ${response.results.away?.length || 0}`);
+      }
+      console.log('📜 ========================================================\n');
+
+      return response;
+    } catch (error) {
+      console.error('❌ Event history fetch error:', error.message);
+      console.log('📜 ========================================================\n');
+      return {
+        results: {
+          h2h: [],
+          home: [],
+          away: []
+        }
+      };
+    }
+  }
+
+  /**
+   * Get head-to-head data (legacy endpoint)
    */
   async getH2H(matchId) {
-    try {
-      const response = await this.makeRequest('/v1/event/view', {
-        event_id: matchId
-      }, 600);
+    const historyData = await this.getEventHistory(matchId);
 
-      // H2H data might be in a different endpoint or require parsing
-      // For now, return placeholder structure
+    if (!historyData.results || !historyData.results.h2h) {
       return {
         matches: [],
         stats: {
@@ -459,13 +497,29 @@ class BetsAPIService {
           away_wins: 0
         }
       };
-    } catch (error) {
-      console.error('H2H fetch error:', error.message);
-      return {
-        matches: [],
-        stats: { home_wins: 0, draws: 0, away_wins: 0 }
-      };
     }
+
+    const h2hMatches = historyData.results.h2h;
+    let homeWins = 0;
+    let draws = 0;
+    let awayWins = 0;
+
+    h2hMatches.forEach(match => {
+      if (!match.ss) return;
+      const [homeScore, awayScore] = match.ss.split('-').map(s => parseInt(s));
+      if (homeScore > awayScore) homeWins++;
+      else if (homeScore === awayScore) draws++;
+      else awayWins++;
+    });
+
+    return {
+      matches: h2hMatches,
+      stats: {
+        home_wins: homeWins,
+        draws,
+        away_wins: awayWins
+      }
+    };
   }
 
   /**
